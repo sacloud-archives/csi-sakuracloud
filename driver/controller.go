@@ -2,13 +2,102 @@ package driver
 
 import (
 	"context"
+	"errors"
+	"fmt"
+	"strconv"
+	"strings"
 
 	csi "github.com/container-storage-interface/spec/lib/go/csi/v0"
+	"github.com/sacloud/libsacloud/sacloud"
+	"github.com/sirupsen/logrus"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
+)
+
+const (
+	GiB                  = 1024 * 1024 * 1024
+	defaultVolumeSizeGiB = 100
+	fromCSIMarkerTag     = "@csi-sakuracloud"
 )
 
 // CreateVolume creates a new volume from the given request
 func (d *Driver) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequest) (*csi.CreateVolumeResponse, error) {
-	// TODO not implements
+	if req.Name == "" {
+		return nil, status.Error(codes.InvalidArgument, "CreateVolume: Name must be provided")
+	}
+
+	if req.VolumeCapabilities == nil || len(req.VolumeCapabilities) == 0 {
+		return nil, status.Error(codes.InvalidArgument, "CreateVolume Volume capabilities must be provided")
+	}
+
+	size, err := extractStorage(req.CapacityRange)
+	if err != nil {
+		return nil, status.Error(codes.Internal, err.Error())
+	}
+
+	volumeName := sanitizeNFSName(req.Name)
+
+	ll := d.log.WithFields(logrus.Fields{
+		"volume_name":             volumeName,
+		"storage_size_giga_bytes": size / GiB,
+		"method":                  "create_volume",
+	})
+	ll.Info("create volume called")
+
+	volumes, err := d.findNFSByName(volumeName)
+	if err != nil {
+		return nil, status.Error(codes.Internal, err.Error())
+	}
+
+	if volumes != nil && len(volumes) > 0 {
+		if len(volumes) > 1 {
+			return nil, fmt.Errorf("fatal issue: duplicate volume %q exists", volumeName)
+		}
+		vol := volumes[0]
+
+		if !vol.HasTag(fromCSIMarkerTag) {
+			return nil, fmt.Errorf("fatal issue: volume %q (%s) was not created by CSI",
+				vol.Name, vol.Description)
+		}
+
+		// note: SakuraCloud's NFS appliance has size(GiB) into Plan.ID
+		if vol.Plan.ID != size {
+			return nil, status.Error(codes.AlreadyExists, fmt.Sprintf("invalid option requested size: %d", size))
+		}
+
+		ll.Info("volume already created")
+		return &csi.CreateVolumeResponse{
+			Volume: &csi.Volume{
+				Id:            vol.GetStrID(),
+				CapacityBytes: vol.Plan.ID * GiB,
+			},
+		}, nil
+	}
+
+	// create NFS
+	volumeReq, err := buildNFSVolumeParam(volumeName, size, req.Parameters)
+	if err != nil {
+		return nil, status.Error(codes.Internal, err.Error())
+	}
+	ll.WithField("volume_req", volumeReq).Info("creating volume")
+
+	nfs, err := d.sakuraClient.GetNFSAPI().Create(
+		sacloud.NewNFS(volumeReq),
+	)
+	if err != nil {
+		return nil, status.Error(codes.Internal, err.Error())
+	}
+
+	resp := &csi.CreateVolumeResponse{
+		Volume: &csi.Volume{
+			Id:            nfs.GetStrID(),
+			CapacityBytes: nfs.Plan.ID * GiB,
+		},
+	}
+
+	ll.WithField("response", resp).Info("volume created")
+	return resp, nil
+
 	return nil, nil
 }
 
@@ -71,4 +160,87 @@ func (d *Driver) DeleteSnapshot(context.Context, *csi.DeleteSnapshotRequest) (*c
 func (d *Driver) ListSnapshots(context.Context, *csi.ListSnapshotsRequest) (*csi.ListSnapshotsResponse, error) {
 	// TODO not implements
 	return nil, nil
+}
+
+func (d *Driver) findNFSByName(volumeName string) ([]*sacloud.NFS, error) {
+	nfsAPI := d.sakuraClient.GetNFSAPI().Reset()
+
+	results, err := nfsAPI.WithNameLike(volumeName).Find()
+	if err != nil {
+		return nil, err
+	}
+
+	res := make([]*sacloud.NFS, 0)
+	for _, nfs := range results.NFS {
+		if nfs.Name == volumeName {
+			res = append(res, &nfs)
+		}
+	}
+	return res, nil
+}
+
+func sanitizeNFSName(volumeName string) string {
+	return strings.Replace(volumeName, "_", "-", -1)
+}
+
+// extractStorage extracts the storage size in GB from the given capacity
+// range. If the capacity range is not satisfied it returns the default volume
+// size.
+func extractStorage(capRange *csi.CapacityRange) (int64, error) {
+	if capRange == nil {
+		return defaultVolumeSizeGiB, nil
+	}
+
+	if capRange.RequiredBytes == 0 && capRange.LimitBytes == 0 {
+		return defaultVolumeSizeGiB, nil
+	}
+
+	minSize := capRange.RequiredBytes
+
+	// limitBytes might be zero
+	maxSize := capRange.LimitBytes
+	if capRange.LimitBytes == 0 {
+		maxSize = minSize
+	}
+
+	allowSizes := sacloud.AllowNFSPlans() // unit: GiB
+	for _, byteSize := range allowSizes {
+		size := int64(byteSize) / GiB
+		if minSize <= size && size <= maxSize {
+			return size, nil
+		}
+	}
+
+	return 0, errors.New("there is no NFS plan that satisfies both of RequiredBytes and LimitBytes")
+}
+
+func buildNFSVolumeParam(name string, size int64, params map[string]string) (*sacloud.CreateNFSValue, error) {
+
+	// TODO validate params
+
+	p := sacloud.NewCreateNFSValue()
+	p.Name = name
+	p.Plan = sacloud.NFSPlan(size)
+
+	mapping := map[string]*string{
+		"switchID":       &p.SwitchID,
+		"ipaddress":      &p.IPAddress,
+		"defaultGateway": &p.DefaultRoute,
+		"description":    &p.Description,
+	}
+	for key, dest := range mapping {
+		if v, ok := params[key]; ok {
+			*dest = v
+		}
+	}
+
+	if strMaskLen, ok := params["networkMaskLen"]; ok {
+		maskLen, err := strconv.Atoi(strMaskLen)
+		if err != nil {
+			return nil, err
+		}
+		p.MaskLen = maskLen
+	}
+
+	return p, nil
 }
