@@ -8,9 +8,11 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"time"
 
 	csi "github.com/container-storage-interface/spec/lib/go/csi/v0"
 	"github.com/sacloud/libsacloud/api"
+	"github.com/sacloud/libsacloud/sacloud"
 	"github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
 )
@@ -33,9 +35,22 @@ type Driver struct {
 	accessTokenSecret string
 	zone              string
 
-	srv          *grpc.Server
-	sakuraClient *api.Client
-	log          *logrus.Entry
+	sakuraClient    *api.Client
+	sakuraNFSClient nfsAPIClient
+
+	srv *grpc.Server
+	log *logrus.Entry
+}
+
+type nfsAPIClient interface {
+	Find() (*api.SearchNFSResponse, error)
+	SetEmpty()
+	SetNameLike(name string)
+	Create(value *sacloud.NFS) (*sacloud.NFS, error)
+
+	SleepUntilUp(id int64, timeout time.Duration) error
+	SleepUntilDown(id int64, timeout time.Duration) error
+	SleepWhileCopying(id int64, timeout time.Duration, maxRetry int) error
 }
 
 // NewDriver returns a CSI plugin that contains the necessary gRPC
@@ -51,6 +66,7 @@ func NewDriver(ep, token, secret, zone string) (*Driver, error) {
 		accessTokenSecret: secret,
 		zone:              zone,
 		sakuraClient:      client,
+		sakuraNFSClient:   client.GetNFSAPI(),
 		log: logrus.New().WithFields(logrus.Fields{
 			"zone": zone,
 		}),

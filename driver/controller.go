@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
 	csi "github.com/container-storage-interface/spec/lib/go/csi/v0"
 	"github.com/sacloud/libsacloud/sacloud"
@@ -81,10 +82,19 @@ func (d *Driver) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequest)
 	}
 	ll.WithField("volume_req", volumeReq).Info("creating volume")
 
-	nfs, err := d.sakuraClient.GetNFSAPI().Create(
+	nfs, err := d.sakuraNFSClient.Create(
 		sacloud.NewNFS(volumeReq),
 	)
 	if err != nil {
+		return nil, status.Error(codes.Internal, err.Error())
+	}
+
+	// wait for available
+	// TODO timeout and max retry count are should make configurable
+	if err := d.sakuraNFSClient.SleepWhileCopying(nfs.ID, time.Hour, 100); err != nil {
+		return nil, status.Error(codes.Internal, err.Error())
+	}
+	if err := d.sakuraNFSClient.SleepUntilUp(nfs.ID, time.Hour); err != nil {
 		return nil, status.Error(codes.Internal, err.Error())
 	}
 
@@ -163,9 +173,11 @@ func (d *Driver) ListSnapshots(context.Context, *csi.ListSnapshotsRequest) (*csi
 }
 
 func (d *Driver) findNFSByName(volumeName string) ([]*sacloud.NFS, error) {
-	nfsAPI := d.sakuraClient.GetNFSAPI().Reset()
+	nfsAPI := d.sakuraNFSClient
 
-	results, err := nfsAPI.WithNameLike(volumeName).Find()
+	nfsAPI.SetEmpty()
+	nfsAPI.SetNameLike(volumeName)
+	results, err := nfsAPI.Find()
 	if err != nil {
 		return nil, err
 	}
@@ -205,8 +217,8 @@ func extractStorage(capRange *csi.CapacityRange) (int64, error) {
 
 	allowSizes := sacloud.AllowNFSPlans() // unit: GiB
 	for _, byteSize := range allowSizes {
-		size := int64(byteSize) / GiB
-		if minSize <= size && size <= maxSize {
+		size := int64(byteSize)
+		if minSize/GiB <= size && size <= maxSize/GiB {
 			return size, nil
 		}
 	}
