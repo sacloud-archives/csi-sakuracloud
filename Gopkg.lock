@@ -41,7 +41,7 @@
     "sacloud",
     "sacloud/ostype"
   ]
-  revision = "b659355fe9794ffcbbb195ee29d47492377969a5"
+  revision = "1667bc06080f677ab953cfd2787084fb24571b4a"
 
 [[projects]]
   name = "github.com/sirupsen/logrus"
