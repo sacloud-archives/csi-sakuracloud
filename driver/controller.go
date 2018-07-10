@@ -23,6 +23,14 @@ const (
 	fromCSIMarkerTag     = "@csi-sakuracloud"
 )
 
+const (
+	NFSParameterKeySwitchID       = "switchID"
+	NFSParameterKeyIPAddress      = "ipaddress"
+	NFSParameterKeyDefaultGateway = "defaultGateway"
+	NFSParameterKeyDescription    = "description"
+	NFSPublishInfoURL             = "url"
+)
+
 // CreateVolume creates a new volume from the given request
 func (d *Driver) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequest) (*csi.CreateVolumeResponse, error) {
 	if req.Name == "" {
@@ -157,7 +165,25 @@ func (d *Driver) DeleteVolume(ctx context.Context, req *csi.DeleteVolumeRequest)
 
 // ControllerPublishVolume attaches the given volume to the node
 func (d *Driver) ControllerPublishVolume(ctx context.Context, req *csi.ControllerPublishVolumeRequest) (*csi.ControllerPublishVolumeResponse, error) {
-	// TODO not implements
+	if req.VolumeId == "" {
+		return nil, status.Error(codes.InvalidArgument, "ControllerPublishVolume Volume ID must be provided")
+	}
+
+	// TODO should use VolumeCapability??
+
+	// read
+	resp, err := d.sakuraNFSClient.Read(toSakuraID(req.VolumeId))
+	if err != nil {
+		return nil, err
+	}
+
+	addr := resp.Remark.Servers[0].(map[string]interface{})["IPAddress"].(string)
+	return &csi.ControllerPublishVolumeResponse{
+		PublishInfo: map[string]string{
+			NFSPublishInfoURL: fmt.Sprintf("nfs://%s:/export", addr),
+		},
+	}, nil
+
 	return nil, nil
 }
 
@@ -273,10 +299,10 @@ func buildNFSVolumeParam(name string, size int64, params map[string]string) (*sa
 	p.Plan = sacloud.NFSPlan(size)
 
 	mapping := map[string]*string{
-		"switchID":       &p.SwitchID,
-		"ipaddress":      &p.IPAddress,
-		"defaultGateway": &p.DefaultRoute,
-		"description":    &p.Description,
+		NFSParameterKeySwitchID:       &p.SwitchID,
+		NFSParameterKeyIPAddress:      &p.IPAddress,
+		NFSParameterKeyDefaultGateway: &p.DefaultRoute,
+		NFSParameterKeyDescription:    &p.Description,
 	}
 	for key, dest := range mapping {
 		if v, ok := params[key]; ok {

@@ -188,6 +188,42 @@ func TestDriver_DeleteVolume(t *testing.T) {
 	})
 }
 
+func TestDriver_ControllerPublishVolume(t *testing.T) {
+
+	t.Run("target volume is not exists", func(t *testing.T) {
+		fakeDriver.sakuraNFSClient = &fakeNFSAPIClient{
+			readError: api.NewError(404, nil),
+		}
+
+		resp, err := fakeDriver.ControllerPublishVolume(context.Background(), &csi.ControllerPublishVolumeRequest{
+			VolumeId: "1",
+		})
+
+		assert.Error(t, err)
+		assert.Nil(t, resp)
+	})
+
+	t.Run("target volume is not exists", func(t *testing.T) {
+		fakeNFS := buildFakeNFS(1, &sacloud.CreateNFSValue{
+			Name:      "fake",
+			Tags:      []string{fromCSIMarkerTag},
+			IPAddress: "192.2.0.1",
+		})
+
+		fakeDriver.sakuraNFSClient = &fakeNFSAPIClient{
+			readResponse: &fakeNFS,
+		}
+
+		resp, err := fakeDriver.ControllerPublishVolume(context.Background(), &csi.ControllerPublishVolumeRequest{
+			VolumeId: "1",
+		})
+
+		assert.Nil(t, err)
+		assert.NotNil(t, resp)
+		assert.Equal(t, "nfs://192.2.0.1:/export", resp.PublishInfo[NFSPublishInfoURL])
+	})
+}
+
 type fakeNFSAPIClient struct {
 	findResponse *api.SearchNFSResponse
 	findError    error
