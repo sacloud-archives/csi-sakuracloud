@@ -24,7 +24,6 @@ const (
 //
 //   csi.IdentityServer
 //   csi.ControllerServer
-//   csi.NodeServer
 //
 type Driver struct {
 	endpoint string
