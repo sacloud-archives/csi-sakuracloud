@@ -196,8 +196,17 @@ func (d *Driver) ControllerUnpublishVolume(ctx context.Context, req *csi.Control
 // ValidateVolumeCapabilities checks whether the volume capabilities requested
 // are supported.
 func (d *Driver) ValidateVolumeCapabilities(ctx context.Context, req *csi.ValidateVolumeCapabilitiesRequest) (*csi.ValidateVolumeCapabilitiesResponse, error) {
-	// TODO not implements
-	return nil, nil
+	messages := make([]string, 0)
+	for _, cap := range req.VolumeCapabilities {
+		if cap.AccessMode.Mode != csi.VolumeCapability_AccessMode_MULTI_NODE_MULTI_WRITER {
+			messages = append(messages, fmt.Sprintf("AccessMode %q is not supported", cap.AccessMode.Mode))
+		}
+	}
+
+	return &csi.ValidateVolumeCapabilitiesResponse{
+		Supported: len(messages) == 0,
+		Message:   strings.Join(messages, "\n"),
+	}, nil
 }
 
 // ListVolumes returns a list of all requested volumes

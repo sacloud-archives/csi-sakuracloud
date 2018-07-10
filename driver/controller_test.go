@@ -224,6 +224,37 @@ func TestDriver_ControllerPublishVolume(t *testing.T) {
 	})
 }
 
+func TestDriver_ValidateVolumeCapabilities(t *testing.T) {
+
+	expects := map[csi.VolumeCapability_AccessMode_Mode]bool{
+		csi.VolumeCapability_AccessMode_SINGLE_NODE_WRITER:       false,
+		csi.VolumeCapability_AccessMode_SINGLE_NODE_READER_ONLY:  false,
+		csi.VolumeCapability_AccessMode_MULTI_NODE_READER_ONLY:   false,
+		csi.VolumeCapability_AccessMode_MULTI_NODE_SINGLE_WRITER: false,
+		csi.VolumeCapability_AccessMode_MULTI_NODE_MULTI_WRITER:  true,
+	}
+
+	for cap, expect := range expects {
+
+		req := &csi.ValidateVolumeCapabilitiesRequest{
+			VolumeCapabilities: []*csi.VolumeCapability{
+				{
+					AccessMode: &csi.VolumeCapability_AccessMode{
+						Mode: cap,
+					},
+				},
+			},
+		}
+
+		resp, err := fakeDriver.ValidateVolumeCapabilities(context.Background(), req)
+
+		assert.NoError(t, err)
+		assert.NotNil(t, resp)
+		assert.Equal(t, expect, resp.Supported)
+	}
+
+}
+
 type fakeNFSAPIClient struct {
 	findResponse *api.SearchNFSResponse
 	findError    error
