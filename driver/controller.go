@@ -4,11 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"strconv"
 	"strings"
 	"time"
 
 	csi "github.com/container-storage-interface/spec/lib/go/csi/v0"
+	"github.com/sacloud/libsacloud/api"
 	"github.com/sacloud/libsacloud/sacloud"
 	"github.com/sirupsen/logrus"
 	"google.golang.org/grpc/codes"
@@ -113,8 +115,44 @@ func (d *Driver) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequest)
 
 // DeleteVolume deletes the given volume
 func (d *Driver) DeleteVolume(ctx context.Context, req *csi.DeleteVolumeRequest) (*csi.DeleteVolumeResponse, error) {
-	// TODO not implements
-	return nil, nil
+	if req.VolumeId == "" {
+		return nil, status.Error(codes.InvalidArgument, "DeleteVolume Volume ID must be provided")
+	}
+
+	ll := d.log.WithFields(logrus.Fields{
+		"volume_id": req.VolumeId,
+		"method":    "delete_volume",
+	})
+	ll.Info("delete volume called")
+
+	// read
+	resp, err := d.sakuraNFSClient.Read(toSakuraID(req.VolumeId))
+	if err != nil {
+		if e, ok := err.(api.Error); ok && e.ResponseCode() == http.StatusNotFound {
+			// already deleted
+			return &csi.DeleteVolumeResponse{}, nil
+		}
+		return nil, status.Error(codes.Internal, err.Error())
+	}
+
+	// stop
+	if _, err := d.sakuraNFSClient.Stop(resp.ID); err != nil {
+		return nil, status.Error(codes.Internal, err.Error())
+	}
+
+	// wait for stopped
+	if _, err := d.sakuraNFSClient.Stop(resp.ID); err != nil {
+		return nil, status.Error(codes.Internal, err.Error())
+	}
+
+	// delete
+	resp, err = d.sakuraNFSClient.Delete(resp.ID)
+	if err != nil {
+		return nil, status.Error(codes.Internal, err.Error())
+	}
+
+	ll.WithField("response", resp).Info("volume is deleted")
+	return &csi.DeleteVolumeResponse{}, nil
 }
 
 // ControllerPublishVolume attaches the given volume to the node

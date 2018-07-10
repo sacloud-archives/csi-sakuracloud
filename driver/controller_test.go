@@ -140,18 +140,69 @@ func TestDriver_CreateVolume(t *testing.T) {
 	}
 }
 
-func buildFakeNFS(id int64, params *sacloud.CreateNFSValue) sacloud.NFS {
-	nfs := sacloud.NewNFS(params)
-	nfs.Resource = sacloud.NewResource(id)
-	return *nfs
+func TestDriver_DeleteVolume(t *testing.T) {
+
+	t.Run("target volume already deleted", func(t *testing.T) {
+		fakeDriver.sakuraNFSClient = &fakeNFSAPIClient{
+			readError: api.NewError(404, nil),
+		}
+
+		resp, err := fakeDriver.DeleteVolume(context.Background(), &csi.DeleteVolumeRequest{
+			VolumeId: "1",
+		})
+
+		assert.NoError(t, err)
+		assert.NotNil(t, resp)
+	})
+
+	t.Run("error response is not 404", func(t *testing.T) {
+		fakeDriver.sakuraNFSClient = &fakeNFSAPIClient{
+			readError: api.NewError(400, nil),
+		}
+
+		resp, err := fakeDriver.DeleteVolume(context.Background(), &csi.DeleteVolumeRequest{
+			VolumeId: "1",
+		})
+
+		assert.Error(t, err)
+		assert.Nil(t, resp)
+	})
+
+	t.Run("no error", func(t *testing.T) {
+		fakeNFS := buildFakeNFS(1, &sacloud.CreateNFSValue{
+			Name: "fake",
+			Tags: []string{fromCSIMarkerTag},
+		})
+
+		fakeDriver.sakuraNFSClient = &fakeNFSAPIClient{
+			readResponse:   &fakeNFS,
+			deleteResponse: &fakeNFS,
+		}
+
+		resp, err := fakeDriver.DeleteVolume(context.Background(), &csi.DeleteVolumeRequest{
+			VolumeId: "1",
+		})
+
+		assert.NoError(t, err)
+		assert.NotNil(t, resp)
+	})
 }
 
 type fakeNFSAPIClient struct {
 	findResponse *api.SearchNFSResponse
 	findError    error
 
+	readResponse *sacloud.NFS
+	readError    error
+
 	createResponse *sacloud.NFS
 	createError    error
+
+	deleteResponse *sacloud.NFS
+	deleteError    error
+
+	stopError error
+	waitError error
 }
 
 func (f *fakeNFSAPIClient) Find() (*api.SearchNFSResponse, error) {
@@ -166,21 +217,36 @@ func (f *fakeNFSAPIClient) SetNameLike(name string) {
 	// noop
 }
 
+func (f *fakeNFSAPIClient) Read(id int64) (*sacloud.NFS, error) {
+	return f.readResponse, f.readError
+}
+
 func (f *fakeNFSAPIClient) Create(value *sacloud.NFS) (*sacloud.NFS, error) {
 	return f.createResponse, f.createError
 }
 
+func (f *fakeNFSAPIClient) Stop(id int64) (bool, error) {
+	return true, f.stopError
+}
+
+func (f *fakeNFSAPIClient) Delete(id int64) (*sacloud.NFS, error) {
+	return f.deleteResponse, f.deleteError
+}
+
 func (f *fakeNFSAPIClient) SleepUntilUp(id int64, timeout time.Duration) error {
-	// noop
-	return nil
+	return f.waitError
 }
 
 func (f *fakeNFSAPIClient) SleepUntilDown(id int64, timeout time.Duration) error {
-	// noop
-	return nil
+	return f.waitError
 }
 
 func (f *fakeNFSAPIClient) SleepWhileCopying(id int64, timeout time.Duration, maxRetry int) error {
-	// noop
-	return nil
+	return f.waitError
+}
+
+func buildFakeNFS(id int64, params *sacloud.CreateNFSValue) sacloud.NFS {
+	nfs := sacloud.NewNFS(params)
+	nfs.Resource = sacloud.NewResource(id)
+	return *nfs
 }
