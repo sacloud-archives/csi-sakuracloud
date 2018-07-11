@@ -270,13 +270,46 @@ func (d *Driver) ListVolumes(ctx context.Context, req *csi.ListVolumesRequest) (
 // GetCapacity returns the capacity of the storage pool
 func (d *Driver) GetCapacity(ctx context.Context, req *csi.GetCapacityRequest) (*csi.GetCapacityResponse, error) {
 	// TODO not implements
-	return nil, nil
+	d.log.WithFields(logrus.Fields{
+		"params": req.Parameters,
+		"method": "get_capacity",
+	}).Warn("get capacity is not implemented")
+	return nil, status.Error(codes.Unimplemented, "")
 }
 
 // ControllerGetCapabilities returns the capabilities of the controller service.
 func (d *Driver) ControllerGetCapabilities(ctx context.Context, req *csi.ControllerGetCapabilitiesRequest) (*csi.ControllerGetCapabilitiesResponse, error) {
-	// TODO not implements
-	return nil, nil
+	newCap := func(cap csi.ControllerServiceCapability_RPC_Type) *csi.ControllerServiceCapability {
+		return &csi.ControllerServiceCapability{
+			Type: &csi.ControllerServiceCapability_Rpc{
+				Rpc: &csi.ControllerServiceCapability_RPC{
+					Type: cap,
+				},
+			},
+		}
+	}
+
+	var caps []*csi.ControllerServiceCapability
+	for _, cap := range []csi.ControllerServiceCapability_RPC_Type{
+		csi.ControllerServiceCapability_RPC_CREATE_DELETE_VOLUME,
+		csi.ControllerServiceCapability_RPC_PUBLISH_UNPUBLISH_VOLUME,
+		csi.ControllerServiceCapability_RPC_LIST_VOLUMES,
+		//csi.ControllerServiceCapability_RPC_GET_CAPACITY,
+		//csi.ControllerServiceCapability_RPC_CREATE_DELETE_SNAPSHOT,
+		//csi.ControllerServiceCapability_RPC_LIST_SNAPSHOTS,
+	} {
+		caps = append(caps, newCap(cap))
+	}
+
+	resp := &csi.ControllerGetCapabilitiesResponse{
+		Capabilities: caps,
+	}
+
+	d.log.WithFields(logrus.Fields{
+		"response": resp,
+		"method":   "controller_get_capabilities",
+	}).Info("controller get capabilities called")
+	return resp, nil
 }
 
 // CreateSnapshot creates a new snapshot from the given request
