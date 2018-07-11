@@ -16,7 +16,7 @@ func main() {
 	var (
 		endpoint = flag.String("endpoint", defaultEndpoint, "CSI endpoint")
 		token    = flag.String("token", "", "SakuraCloud access token")
-		secret   = flag.String("token", "", "SakuraCloud access token secret")
+		secret   = flag.String("secret", "", "SakuraCloud access token secret")
 		zone     = flag.String("zone", defaultZone, "SakuraCloud default zone[is1a/is1b/tk1a/tk1v]")
 	)
 	flag.Parse()
