@@ -229,20 +229,17 @@ func (d *Driver) ControllerGetCapabilities(ctx context.Context, req *csi.Control
 
 // CreateSnapshot creates a new snapshot from the given request
 func (d *Driver) CreateSnapshot(context.Context, *csi.CreateSnapshotRequest) (*csi.CreateSnapshotResponse, error) {
-	// TODO not implements
-	return nil, nil
+	return nil, status.Error(codes.Unimplemented, "")
 }
 
 // DeleteSnapshot deletes the given snapshot
 func (d *Driver) DeleteSnapshot(context.Context, *csi.DeleteSnapshotRequest) (*csi.DeleteSnapshotResponse, error) {
-	// TODO not implements
-	return nil, nil
+	return nil, status.Error(codes.Unimplemented, "")
 }
 
 // ListSnapshots returns a list of all requested snapshots
 func (d *Driver) ListSnapshots(context.Context, *csi.ListSnapshotsRequest) (*csi.ListSnapshotsResponse, error) {
-	// TODO not implements
-	return nil, nil
+	return nil, status.Error(codes.Unimplemented, "")
 }
 
 func (d *Driver) findNFSByName(volumeName string) ([]*sacloud.NFS, error) {
