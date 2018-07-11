@@ -211,8 +211,60 @@ func (d *Driver) ValidateVolumeCapabilities(ctx context.Context, req *csi.Valida
 
 // ListVolumes returns a list of all requested volumes
 func (d *Driver) ListVolumes(ctx context.Context, req *csi.ListVolumesRequest) (*csi.ListVolumesResponse, error) {
-	// TODO not implements
-	return nil, nil
+	var page int
+	var err error
+	if req.StartingToken != "" {
+		page, err = strconv.Atoi(req.StartingToken)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	d.sakuraNFSClient.SetEmpty()
+	d.sakuraNFSClient.SetOffset(page)
+	d.sakuraNFSClient.SetLimit(int(req.MaxEntries))
+
+	ll := d.log.WithFields(logrus.Fields{
+		"req_starting_token": req.StartingToken,
+		"method":             "list_volumes",
+	})
+	ll.Info("list volumes called")
+
+	var volumes []sacloud.NFS
+	vols, err := d.sakuraNFSClient.Find()
+	if err != nil {
+		if e, ok := err.(api.Error); ok && e.ResponseCode() == http.StatusNotFound {
+			return &csi.ListVolumesResponse{
+				Entries: []*csi.ListVolumesResponse_Entry{},
+			}, nil
+		}
+		return nil, err
+	}
+
+	for _, vol := range vols.NFS {
+		if vol.HasTag(fromCSIMarkerTag) {
+			volumes = append(volumes, vol)
+		}
+	}
+
+	var entries []*csi.ListVolumesResponse_Entry
+	for _, vol := range volumes {
+		entries = append(entries, &csi.ListVolumesResponse_Entry{
+			Volume: &csi.Volume{
+				Id:            vol.GetStrID(),
+				CapacityBytes: vol.Plan.ID * GiB,
+			},
+		})
+	}
+
+	lastPage := page + 1
+	resp := &csi.ListVolumesResponse{
+		Entries:   entries,
+		NextToken: strconv.Itoa(lastPage),
+	}
+
+	ll.WithField("response", resp).Info("volumes listed")
+	return resp, nil
 }
 
 // GetCapacity returns the capacity of the storage pool

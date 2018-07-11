@@ -17,9 +17,13 @@ func toSakuraID(id string) int64 {
 }
 
 type nfsAPIClient interface {
-	Find() (*api.SearchNFSResponse, error)
 	SetEmpty()
 	SetNameLike(name string)
+	SetOffset(offset int)
+	SetLimit(limit int)
+
+	Find() (*api.SearchNFSResponse, error)
+
 	Read(id int64) (*sacloud.NFS, error)
 	Create(value *sacloud.NFS) (*sacloud.NFS, error)
 	Delete(id int64) (*sacloud.NFS, error)

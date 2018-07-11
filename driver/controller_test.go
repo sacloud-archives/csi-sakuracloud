@@ -252,6 +252,48 @@ func TestDriver_ValidateVolumeCapabilities(t *testing.T) {
 		assert.NotNil(t, resp)
 		assert.Equal(t, expect, resp.Supported)
 	}
+}
+
+func TestDriver_ListVolumes(t *testing.T) {
+	fakeNFSs := []sacloud.NFS{
+		buildFakeNFS(1, &sacloud.CreateNFSValue{
+			Name:      "fake1",
+			Tags:      []string{fromCSIMarkerTag},
+			IPAddress: "192.2.0.1",
+		}),
+		buildFakeNFS(2, &sacloud.CreateNFSValue{
+			Name:      "fake2",
+			IPAddress: "192.2.0.2",
+		}),
+		buildFakeNFS(3, &sacloud.CreateNFSValue{
+			Name:      "fake3",
+			Tags:      []string{fromCSIMarkerTag},
+			IPAddress: "192.2.0.3",
+		}),
+	}
+
+	fakeDriver.sakuraNFSClient = &fakeNFSAPIClient{
+		findResponse: &api.SearchNFSResponse{
+			NFS: fakeNFSs,
+		},
+	}
+
+	t.Run("volumes with marker tag only", func(t *testing.T) {
+		req := &csi.ListVolumesRequest{
+			MaxEntries:    5,
+			StartingToken: "",
+		}
+		res, err := fakeDriver.ListVolumes(context.Background(), req)
+
+		assert.NoError(t, err)
+		assert.NotNil(t, res)
+
+		assert.Len(t, res.Entries, 2)
+		assert.Equal(t, "1", res.Entries[0].Volume.Id)
+		assert.Equal(t, "3", res.Entries[1].Volume.Id)
+
+		assert.Equal(t, res.NextToken, "1")
+	})
 
 }
 
@@ -277,6 +319,14 @@ func (f *fakeNFSAPIClient) Find() (*api.SearchNFSResponse, error) {
 }
 
 func (f *fakeNFSAPIClient) SetEmpty() {
+	// noop
+}
+
+func (f *fakeNFSAPIClient) SetOffset(offset int) {
+	// noop
+}
+
+func (f *fakeNFSAPIClient) SetLimit(limit int) {
 	// noop
 }
 
